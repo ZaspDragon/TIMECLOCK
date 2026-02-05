@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Time Clock + Backup Export</title>
+  <link rel="stylesheet" href="style.css" />
+  <!-- SheetJS (XLSX export) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <div>
+        <h1>Time Clock</h1>
+        <p class="subtitle">One-click timestamps (Eastern Time). Export to Excel or CSV. Works on GitHub Pages.</p>
+      </div>
+      <div class="badge">
+        <div class="badge-label">Current EST</div>
+        <div id="estNow" class="badge-time">--:--:--</div>
+        <div id="estDate" class="badge-date">---- --, ----</div>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>Sign In</h2>
+      <form id="identityForm" class="grid" autocomplete="off">
+        <label>
+          <span>Name</span>
+          <input id="name" type="text" placeholder="Jane Doe" required />
+        </label>
+        <label>
+          <span>Company</span>
+          <input id="company" type="text" placeholder="SideHustle LLP" required />
+        </label>
+        <label>
+          <span>Date (EST)</span>
+          <input id="date" type="date" required />
+        </label>
+
+        <div class="row">
+          <button id="saveIdentity" class="btn primary" type="submit">Save & Start</button>
+          <button id="clearIdentity" class="btn" type="button">Clear</button>
+        </div>
+
+        <div class="hint">
+          Tip: You only have to do this once per day. The app auto-fills today’s date in Eastern Time.
+        </div>
+      </form>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Clock Buttons</h2>
+        <div class="status">
+          <div class="status-label">Status</div>
+          <div id="statusText" class="status-text">Not started</div>
+        </div>
+      </div>
+
+      <div class="buttons">
+        <button class="btn big" id="clockIn">✅ Clock In</button>
+        <button class="btn big" id="lunchOut">🍽️ Lunch Out</button>
+        <button class="btn big" id="endLunch">🥪 End Lunch</button>
+        <button class="btn big danger" id="clockOut">🏁 Clock Out</button>
+      </div>
+
+      <div class="today">
+        <div class="today-box">
+          <div class="label">Clock In</div>
+          <div class="value" id="vClockIn">—</div>
+        </div>
+        <div class="today-box">
+          <div class="label">Lunch Out</div>
+          <div class="value" id="vLunchOut">—</div>
+        </div>
+        <div class="today-box">
+          <div class="label">End Lunch</div>
+          <div class="value" id="vEndLunch">—</div>
+        </div>
+        <div class="today-box">
+          <div class="label">Clock Out</div>
+          <div class="value" id="vClockOut">—</div>
+        </div>
+        <div class="today-total">
+          <div class="label">Hours Worked (auto)</div>
+          <div class="value" id="vHours">—</div>
+          <div class="sub" id="vBreakdown"></div>
+        </div>
+      </div>
+
+      <details class="mini">
+        <summary>What gets saved?</summary>
+        <p>
+          Each button stamps an Eastern Time timestamp into a daily row. Data is stored locally in your browser
+          (LocalStorage). You can export to <strong>Excel (.xlsx)</strong> or <strong>CSV</strong> and send it to whoever needs it.
+        </p>
+      </details>
+    </section>
+
+    <section class="card">
+      <div class="card-head">
+        <h2>Backup Log</h2>
+        <div class="row">
+          <button class="btn" id="exportCsv">⬇️ Export CSV</button>
+          <button class="btn" id="exportXlsx">⬇️ Export Excel (.xlsx)</button>
+          <button class="btn" id="downloadTemplate">📄 Download Blank Excel Template</button>
+          <button class="btn danger" id="wipeData">🧹 Clear All Saved Data</button>
+        </div>
+      </div>
+
+      <div class="table-wrap">
+        <table id="logTable">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Day</th>
+              <th>Name</th>
+              <th>Company</th>
+              <th>Clock In</th>
+              <th>Lunch Out</th>
+              <th>End Lunch</th>
+              <th>Clock Out</th>
+              <th>Lunch (mins)</th>
+              <th>Total Hours</th>
+              <th>Notes</th>
+            </tr>
+          </thead>
+          <tbody id="logBody"></tbody>
+        </table>
+      </div>
+
+      <div class="hint">
+        Want a “single master sheet for everybody”? On pure GitHub Pages (no backend), each person’s log lives on their device.
+        The normal workflow is: everyone exports Excel/CSV and sends it to you (or you connect this to a Google Sheet with a simple script).
+        See README for the optional Google Sheet hookup.
+      </div>
+    </section>
+
+    <footer class="footer">
+      <span>Local-first • Eastern Time • Export-ready</span>
+      <a href="README.html" class="footer-link">How to use / Admin setup</a>
+    </footer>
+  </main>
+</body>
+</html>
