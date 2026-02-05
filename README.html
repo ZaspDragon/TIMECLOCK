@@ -3,73 +3,119 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Time Clock — How to Use</title>
+  <title>Setup — Time Clock</title>
   <link rel="stylesheet" href="style.css" />
   <style>
-    body{background: radial-gradient(1200px 800px at 20% 10%, #13224a, #0b1220);}
     pre{white-space:pre-wrap; word-break:break-word; background:#0e1730; border:1px solid #243152; padding:14px; border-radius:14px; color:#e8eefc;}
-    a{color:#a7b3d6}
   </style>
 </head>
 <body>
   <main class="container">
     <div class="card">
-      <h1 style="margin:0 0 8px 0;">How to Use / Admin Setup</h1>
-      <p class="subtitle">Quick instructions for hosting on GitHub Pages and collecting everyone’s time.</p>
-      <pre># Time Clock (GitHub Pages) — Eastern Time + Excel Backup
+      <h1 style="margin:0 0 8px 0;">Setup & Instructions</h1>
+      <p class="subtitle">Google Sheets backend (no Firebase) — v2</p>
+      <pre># Time Clock (Google Sheets backend) — NO Firebase (v2)
 
-This is a **static** time clock you can host on **GitHub Pages**.
-It stamps timestamps in **America/New_York (Eastern Time)** and exports to **CSV** or **Excel (.xlsx)**.
+This works on **GitHub Pages** and saves ALL time to **one master Google Sheet**.
 
-## What it does
-- Requires: **Name + Company + Date (EST)** (a simple sign-in).
-- One-click buttons:
-  - Clock In
-  - Lunch Out
-  - End Lunch
-  - Clock Out
-- Stores entries locally in the browser (LocalStorage).
-- Export:
-  - CSV
-  - XLSX (Excel)
+✅ Added in v2:
+1) **Approved Employee List** (only approved can submit)
+2) **Rotating Company PIN** (daily or weekly)
+3) **Manager code required** to view current PIN + run reports + export
 
-## Why “everyone’s time in one master sheet” is tricky on GitHub Pages
-GitHub Pages is **static** (no database). That means:
-- Each person’s log stays on *their device/browser*.
-- The normal workflow is: employees export Excel/CSV and send it to you → you paste/merge into a master sheet.
+---
 
-### Best “no-backend” workflow
-1) You publish this on GitHub Pages and send the link to employees  
-2) Each employee clocks their day  
-3) At end of day/week they click **Export Excel** and send it to you  
-4) You combine exports into **Master Log** (template button included)
+## What you get
+- Employees: Name + Company + **Rotating PIN** → stamp times
+- Manager: **Manager Code** → see current PIN + everyone's hours + export master Excel
+- Timezone forced to **America/New_York (Eastern)**
 
-## Optional: auto-backup to a Google Sheet (simple + free)
-If you want a true “everyone goes into the same sheet automatically”, the easiest serverless option is:
-- Create a Google Sheet
-- Add a Google Apps Script Web App as an endpoint
-- The site can POST each stamp to the sheet
+---
 
-I did **not** hard-code your sheet URL (for security). If you want, tell me and I’ll add:
-- A settings box to paste your Web App URL
-- “Auto-sync on every stamp” toggle
+## Step 1) Create your Google Sheet
+1. Create a new Google Sheet (any name)
+2. Open it
 
-## Deploy to GitHub Pages (quick)
-1. Create a new GitHub repo (example: `timeclock`)
-2. Upload these files:
-   - `index.html`
-   - `style.css`
-   - `app.js`
-3. In GitHub: **Settings → Pages**
-   - Source: `Deploy from a branch`
-   - Branch: `main` / root
-4. Your site goes live at the Pages URL GitHub gives you.
+---
 
-## Notes
-- Time zone is forced to **America/New_York** even if someone is traveling.
-- Works on phones + desktop.
+## Step 2) Add the Apps Script backend
+1. In the sheet: **Extensions → Apps Script**
+2. Paste the code from: `apps_script_backend.js`
+3. Edit CONFIG at the top:
+
+```js
+PIN_MODE: "weekly",           // or "daily"
+BASE_PIN_SECRET: "SIDEHUSTLE",// keep private
+MANAGER_CODE: "MANAGER123",
+```
+
+---
+
+## Step 3) Deploy the Apps Script as a Web App
+1. Click **Deploy → New deployment**
+2. Select **Web app**
+3. **Execute as:** Me
+4. **Who has access:** Anyone
+5. Deploy → Authorize
+6. Copy the Web App URL ending with `/exec`
+
+---
+
+## Step 4) Put the Web App URL into the website
+Open `config.js` and set:
+
+```js
+APPS_SCRIPT_URL: "PASTE_YOUR_WEB_APP_URL_HERE"
+PIN_MODE: "weekly",
+BASE_PIN_SECRET: "SIDEHUSTLE",
+MANAGER_CODE: "MANAGER123",
+```
+
+&gt; Note: the website does NOT compute the PIN — it validates PIN server-side.
+&gt; Managers can see the current PIN on the Manager Dashboard after entering the manager code.
+
+---
+
+## Step 5) Approve employees
+In your Google Sheet, a tab will be created automatically:
+
+**ApprovedEmployees**
+Columns:
+- name
+- company
+- status (use: approved)
+
+Add each employee like:
+- John Smith | SideHustle | approved
+
+If they are not listed as approved, the app will reject stamps and history reads.
+
+---
+
+## Step 6) Deploy to GitHub Pages
+Upload these files to your repo root and turn on GitHub Pages:
+- index.html
+- manager.html
+- style.css
+- config.js
+- common.js
+- api.js
+- employee.js
+- manager.js
+- apps_script_backend.js (reference)
+- README.html (optional)
+
+GitHub: Settings → Pages → Deploy from branch → main / root.
+
+---
+
+## Rotating PIN format
+- Weekly (default): `BASE_PIN_SECRET-YYYYWww` (example: `SIDEHUSTLE-2026W05`)
+- Daily: `BASE_PIN_SECRET-YYYY-MM-DD` (example: `SIDEHUSTLE-2026-02-05`)
+
+The **Manager Dashboard** shows the current PIN after you enter the manager code.
 </pre>
-      <p><a href="index.html">← Back to Time Clock</a></p>
+      <p class="hint"><a class="muted" href="index.html">← Back to Time Clock</a></p>
     </div>
   </main>
 </body>

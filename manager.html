@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Manager Dashboard</title>
+  <link rel="stylesheet" href="style.css" />
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js" defer></script>
+  <script type="module" src="manager.js"></script>
+</head>
+<body>
+  <main class="container">
+    <header class="header">
+      <div>
+        <h1>Manager Dashboard</h1>
+        <p class="subtitle">Enter manager code → view everyone’s hours → export master Excel</p>
+      </div>
+      <div class="row">
+        <a class="btn" href="index.html">Employee View</a>
+      </div>
+    </header>
+
+    <section class="card">
+      <h2>Manager Login</h2>
+      <form id="mgrForm" class="grid2" autocomplete="off">
+        <label>
+          <span>Manager Code</span>
+          <input id="mgrCode" type="password" placeholder="Required" required />
+        </label>
+        <label>
+          <span>Optional: Company filter</span>
+          <input id="company" type="text" placeholder="SideHustle" />
+        </label>
+
+        <div class="row">
+          <button class="btn primary" type="submit">Unlock Dashboard</button>
+          <button class="btn danger" id="lock" type="button">Lock</button>
+        </div>
+        <div id="msg" class="hint"></div>
+      </form>
+    </section>
+
+    <section class="card" id="dash" style="display:none">
+      <div class="card-head">
+        <h2>Reports</h2>
+        <div class="row" style="gap:12px; flex-wrap:wrap;">
+          <div class="status">
+            <div class="status-label">Grand total</div>
+            <div id="grandTotal" class="status-text">—</div>
+          </div>
+          <div class="status">
+            <div class="status-label">Current Company PIN</div>
+            <div id="currentPin" class="status-text">—</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid4">
+        <label><span>Name contains</span><input id="nameContains" type="text" placeholder="Jane" /></label>
+        <label><span>From</span><input id="from" type="date" /></label>
+        <label><span>To</span><input id="to" type="date" /></label>
+        <label><span>Actions</span>
+          <div class="row">
+            <button class="btn" id="lastWeek" type="button">Last Week</button>
+            <button class="btn" id="thisWeek" type="button">This Week</button>
+          </div>
+        </label>
+      </div>
+
+      <div class="row" style="margin-top:10px;">
+        <button class="btn primary" id="run" type="button">Run Report</button>
+        <button class="btn" id="exportXlsx" type="button">⬇️ Export Master Excel</button>
+      </div>
+
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Employee</th><th>Company</th><th>Range Hours</th><th>Days</th></tr>
+          </thead>
+          <tbody id="summaryBody"></tbody>
+        </table>
+      </div>
+
+      <details class="mini">
+        <summary>Show detailed rows</summary>
+        <div class="table-wrap" style="margin-top:10px;">
+          <table>
+            <thead>
+              <tr>
+                <th>Date</th><th>Day</th><th>Name</th><th>Company</th><th>Clock In</th><th>Lunch Out</th><th>End Lunch</th><th>Clock Out</th><th>Lunch (mins)</th><th>Total Hours</th>
+              </tr>
+            </thead>
+            <tbody id="detailBody"></tbody>
+          </table>
+        </div>
+      </details>
+    </section>
+  </main>
+</body>
+</html>

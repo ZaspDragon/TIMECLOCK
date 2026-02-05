@@ -3,50 +3,59 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Time Clock + Backup Export</title>
+  <title>Time Clock</title>
   <link rel="stylesheet" href="style.css" />
-  <!-- SheetJS (XLSX export) -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js" defer></script>
-  <script src="app.js" defer></script>
+  <script type="module" src="employee.js"></script>
 </head>
 <body>
   <main class="container">
     <header class="header">
       <div>
         <h1>Time Clock</h1>
-        <p class="subtitle">One-click timestamps (Eastern Time). Export to Excel or CSV. Works on GitHub Pages.</p>
+        <p class="subtitle">Name + Company + PIN → one-click stamps (Eastern Time) → saved to a master Google Sheet</p>
       </div>
       <div class="badge">
         <div class="badge-label">Current EST</div>
-        <div id="estNow" class="badge-time">--:--:--</div>
-        <div id="estDate" class="badge-date">---- --, ----</div>
+        <div id="now" class="badge-time">--:--:--</div>
+        <div id="datePretty" class="badge-date">---- --, ----</div>
       </div>
     </header>
 
     <section class="card">
-      <h2>Sign In</h2>
-      <form id="identityForm" class="grid" autocomplete="off">
+      <div class="card-head">
+        <div>
+          <h2>Sign In</h2>
+          <p class="muted">Employees enter Name + Company + Company PIN (no passwords). Manager uses separate code.</p>
+        </div>
+        <div class="row">
+          <a class="btn" href="manager.html">Manager Dashboard</a>
+        </div>
+      </div>
+
+      <form id="identityForm" class="grid4" autocomplete="off">
         <label>
           <span>Name</span>
-          <input id="name" type="text" placeholder="Jane Doe" required />
+          <input id="name" type="text" placeholder="Brandon Evanshine" required />
         </label>
         <label>
           <span>Company</span>
-          <input id="company" type="text" placeholder="SideHustle LLP" required />
+          <input id="company" type="text" placeholder="SideHustle" required />
         </label>
         <label>
           <span>Date (EST)</span>
           <input id="date" type="date" required />
         </label>
+        <label>
+          <span>Company PIN</span>
+          <input id="pin" type="password" placeholder="Required" required />
+        </label>
 
         <div class="row">
-          <button id="saveIdentity" class="btn primary" type="submit">Save & Start</button>
-          <button id="clearIdentity" class="btn" type="button">Clear</button>
+          <button class="btn primary" type="submit">Save & Enable Buttons</button>
+          <button class="btn danger" id="clear" type="button">Clear</button>
         </div>
-
-        <div class="hint">
-          Tip: You only have to do this once per day. The app auto-fills today’s date in Eastern Time.
-        </div>
+        <div id="msg" class="hint"></div>
       </form>
     </section>
 
@@ -55,7 +64,7 @@
         <h2>Clock Buttons</h2>
         <div class="status">
           <div class="status-label">Status</div>
-          <div id="statusText" class="status-text">Not started</div>
+          <div id="status" class="status-text">Not started</div>
         </div>
       </div>
 
@@ -89,58 +98,43 @@
           <div class="sub" id="vBreakdown"></div>
         </div>
       </div>
-
-      <details class="mini">
-        <summary>What gets saved?</summary>
-        <p>
-          Each button stamps an Eastern Time timestamp into a daily row. Data is stored locally in your browser
-          (LocalStorage). You can export to <strong>Excel (.xlsx)</strong> or <strong>CSV</strong> and send it to whoever needs it.
-        </p>
-      </details>
     </section>
 
     <section class="card">
       <div class="card-head">
-        <h2>Backup Log</h2>
+        <h2>My History (from master sheet)</h2>
         <div class="row">
-          <button class="btn" id="exportCsv">⬇️ Export CSV</button>
-          <button class="btn" id="exportXlsx">⬇️ Export Excel (.xlsx)</button>
-          <button class="btn" id="downloadTemplate">📄 Download Blank Excel Template</button>
-          <button class="btn danger" id="wipeData">🧹 Clear All Saved Data</button>
+          <button class="btn" id="lastWeek">Last Week</button>
+          <button class="btn" id="thisWeek">This Week</button>
+          <button class="btn" id="refresh">Refresh</button>
+          <button class="btn" id="exportXlsx">⬇️ Excel</button>
+          <button class="btn" id="exportCsv">⬇️ CSV</button>
         </div>
       </div>
 
+      <div class="grid3">
+        <label><span>From</span><input id="from" type="date" /></label>
+        <label><span>To</span><input id="to" type="date" /></label>
+        <label><span>Total (range)</span><input id="rangeTotal" type="text" readonly /></label>
+      </div>
+
       <div class="table-wrap">
-        <table id="logTable">
+        <table>
           <thead>
             <tr>
-              <th>Date</th>
-              <th>Day</th>
-              <th>Name</th>
-              <th>Company</th>
-              <th>Clock In</th>
-              <th>Lunch Out</th>
-              <th>End Lunch</th>
-              <th>Clock Out</th>
-              <th>Lunch (mins)</th>
-              <th>Total Hours</th>
-              <th>Notes</th>
+              <th>Date</th><th>Day</th><th>Clock In</th><th>Lunch Out</th><th>End Lunch</th><th>Clock Out</th><th>Lunch (mins)</th><th>Total Hours</th>
             </tr>
           </thead>
-          <tbody id="logBody"></tbody>
+          <tbody id="tbody"></tbody>
         </table>
       </div>
 
-      <div class="hint">
-        Want a “single master sheet for everybody”? On pure GitHub Pages (no backend), each person’s log lives on their device.
-        The normal workflow is: everyone exports Excel/CSV and sends it to you (or you connect this to a Google Sheet with a simple script).
-        See README for the optional Google Sheet hookup.
-      </div>
+      <div class="hint">This pulls your rows from the shared Google Sheet using your Name + Company.</div>
     </section>
 
-    <footer class="footer">
-      <span>Local-first • Eastern Time • Export-ready</span>
-      <a href="README.html" class="footer-link">How to use / Admin setup</a>
+    <footer>
+      <span>Google Sheets-backed • Eastern Time • Exports</span>
+      <a class="muted" href="README.html">Setup</a>
     </footer>
   </main>
 </body>
