@@ -15,10 +15,10 @@ export const CONFIG = {
   // Base secret used to generate the rotating company PIN (keep private)
   // The actual PIN employees type changes automatically.
   // Example weekly PIN: SIDEHUSTLE-2026W05
-  BASE_PIN_SECRET: "SIDEHUSTLE",
+  BASE_PIN_SECRET: "1234",
 
   // Manager code to unlock manager dashboard + view current PIN
-  MANAGER_CODE: "MANAGER123",
+  MANAGER_CODE: "MANAGER2026!",
 
   // Force Eastern Time
   TIMEZONE: "America/New_York"
