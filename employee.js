@@ -1,249 +1,295 @@
-// ============================================
-// TIME CLOCK BACKEND (ONE SHEET) — COMPAT MODE
-// Works with v3 frontend that sends:
-//  - action:"stamp", field:"clockIn|lunchOut|endLunch|clockOut", estDate, estTime
-//  - action:"query", pin, name, company, from, to
-// Also supports newer style:
-//  - type:"stamp" + action:"clockIn|..."
-//  - type:"employeeQuery" / type:"managerQuery"
-// ============================================
+import { CONFIG } from "./config.js";
+import { stamp, queryRange } from "./api.js";
+import {
+  tzPrettyTime,
+  tzPrettyDate,
+  tzDateISO,
+  tzTimeHHMMSS,
+  dayNameFromISO,
+  calcLunchMins,
+  calcTotalHours,
+  startOfWeekISO,
+  addDaysISO
+} from "./common.js";
 
-const TIMEZONE = "America/New_York";
+const $ = (id) => document.getElementById(id);
 
-// OPTIONAL: If you want to REQUIRE a company PIN, set it here.
-// If you want NO pin requirement, leave it as empty string "".
-const COMPANY_PIN = ""; // e.g. "SIDEHUSTLE123" OR "" (no pin check)
+const els = {
+  now: $("now"),
+  datePretty: $("datePretty"),
+  name: $("name"),
+  company: $("company"),
+  date: $("date"),
+  // pin removed
+  msg: $("msg"),
+  identityForm: $("identityForm"),
+  clear: $("clear"),
 
-// OPTIONAL: Manager code (used for managerQuery)
-const MANAGER_CODE = "MANAGER2026!"; // change this
+  status: $("status"),
+  clockIn: $("clockIn"),
+  lunchOut: $("lunchOut"),
+  endLunch: $("endLunch"),
+  clockOut: $("clockOut"),
 
-const SHEET_LOGS = "TimeLogs";
-const SHEET_APPROVED = "ApprovedEmployees";
+  vClockIn: $("vClockIn"),
+  vLunchOut: $("vLunchOut"),
+  vEndLunch: $("vEndLunch"),
+  vClockOut: $("vClockOut"),
+  vHours: $("vHours"),
+  vBreakdown: $("vBreakdown"),
 
-function doGet() {
-  return output({ ok: true, message: "TimeClock backend running" });
+  from: $("from"),
+  to: $("to"),
+  rangeTotal: $("rangeTotal"),
+  tbody: $("tbody"),
+  lastWeek: $("lastWeek"),
+  thisWeek: $("thisWeek"),
+  refresh: $("refresh"),
+  exportXlsx: $("exportXlsx"),
+  exportCsv: $("exportCsv"),
+};
+
+const ID_KEY = "tc_identity_v3"; // keep key; stored object just won’t include pin
+let identity = null;
+let myRows = [];
+
+function setMsg(t){ els.msg.textContent = t || ""; }
+
+function tick(){
+  els.now.textContent = tzPrettyTime();
+  els.datePretty.textContent = tzPrettyDate();
+}
+tick(); setInterval(tick, 500);
+
+function statusFor(row){
+  if(row.clockOut) return "Clocked Out";
+  if(row.endLunch) return "Working";
+  if(row.lunchOut) return "At Lunch";
+  if(row.clockIn) return "Clocked In";
+  return "Not started";
 }
 
-function doPost(e) {
-  try {
-    const data = JSON.parse((e && e.postData && e.postData.contents) || "{}");
-    const ss = SpreadsheetApp.getActiveSpreadsheet();
+function renderToday(row){
+  els.vClockIn.textContent = row.clockIn || "—";
+  els.vLunchOut.textContent = row.lunchOut || "—";
+  els.vEndLunch.textContent = row.endLunch || "—";
+  els.vClockOut.textContent = row.clockOut || "—";
+  const lunchM = calcLunchMins(row);
+  const totalH = calcTotalHours(row);
+  els.vHours.textContent = totalH === "" ? "—" : `${totalH} hrs`;
+  const pieces = [];
+  if(row.clockIn && row.clockOut) pieces.push(`Shift: ${row.clockIn} → ${row.clockOut}`);
+  if(lunchM !== "") pieces.push(`Lunch: ${lunchM} mins`);
+  els.vBreakdown.textContent = pieces.join(" • ");
+  els.status.textContent = statusFor(row);
 
-    const logs = ss.getSheetByName(SHEET_LOGS);
-    const approved = ss.getSheetByName(SHEET_APPROVED);
+  els.clockIn.disabled = !!row.clockIn;
+  els.lunchOut.disabled = !row.clockIn || !!row.lunchOut || !!row.clockOut;
+  els.endLunch.disabled = !row.lunchOut || !!row.endLunch || !!row.clockOut;
+  els.clockOut.disabled = !row.clockIn || !!row.clockOut;
+}
 
-    if (!logs || !approved) {
-      return output({
-        ok: false,
-        error: `Required sheets not found. Need tabs: ${SHEET_LOGS} and ${SHEET_APPROVED}`,
-      });
+function renderTable(rows){
+  els.tbody.innerHTML = "";
+  let sum = 0;
+  rows.forEach(r=>{
+    const tr = document.createElement("tr");
+    const lunchM = calcLunchMins(r);
+    const totalH = calcTotalHours(r);
+    if(totalH !== "") sum += Number(totalH);
+    const cells = [r.estDate, r.day, r.clockIn||"", r.lunchOut||"", r.endLunch||"", r.clockOut||"", lunchM===""?"":String(lunchM), totalH===""?"":String(totalH)];
+    cells.forEach(v=>{
+      const td = document.createElement("td");
+      td.textContent = v;
+      tr.appendChild(td);
+    });
+    els.tbody.appendChild(tr);
+  });
+  els.rangeTotal.value = rows.length ? (Math.round(sum*100)/100 + " hrs") : "";
+}
+
+function loadIdentity(){
+  try{ return JSON.parse(localStorage.getItem(ID_KEY) || "null"); }catch(e){ return null; }
+}
+function saveIdentity(id){ localStorage.setItem(ID_KEY, JSON.stringify(id)); }
+function clearIdentity(){ localStorage.removeItem(ID_KEY); }
+
+function enableButtons(on){
+  // Keep “today stamp” buttons enabled/disabled as a group
+  [els.clockIn, els.lunchOut, els.endLunch, els.clockOut].forEach(b => b.disabled = !on);
+}
+
+function weekRange(which){
+  const today = tzDateISO();
+  const thisMon = startOfWeekISO(today);
+  const from = which === "last" ? addDaysISO(thisMon, -7) : thisMon;
+  const to = which === "last" ? addDaysISO(thisMon, -1) : addDaysISO(thisMon, 6);
+  return {from,to};
+}
+
+function ensureDefaultRange(){
+  const r = weekRange("this");
+  els.from.value = r.from;
+  els.to.value = r.to;
+}
+
+function todayRowFrom(rows){
+  const today = tzDateISO();
+  return rows.find(r => r.estDate === today) || { estDate: today, day: dayNameFromISO(today), clockIn:"", lunchOut:"", endLunch:"", clockOut:"" };
+}
+
+async function refreshMyRows(){
+  if(!identity) return;
+  setMsg("Loading your history…");
+  const res = await queryRange({
+    name: identity.name,
+    company: identity.company,
+    from: els.from.value,
+    to: els.to.value
+  });
+  if(!res.ok){
+    setMsg("Error: " + (res.error || "Unable to load"));
+    return;
+  }
+  myRows = res.rows || [];
+  renderTable(myRows);
+  renderToday(todayRowFrom(myRows));
+  setMsg(res.note || "Loaded.");
+}
+
+function exportCSV(){
+  const header = ["Date","Day","Name","Company","Clock In","Lunch Out","End Lunch","Clock Out","Lunch (mins)","Total Hours"];
+  const lines = [header, ...(myRows.map(r=>{
+    const lunchM = calcLunchMins(r);
+    const totalH = calcTotalHours(r);
+    return [r.estDate, r.day, identity.name, identity.company, r.clockIn||"", r.lunchOut||"", r.endLunch||"", r.clockOut||"", lunchM===""?"":lunchM, totalH===""?"":totalH];
+  }))].map(row => row.map(v=>{
+    const s = String(v ?? "");
+    if(s.includes(",") || s.includes('"') || s.includes("\n")){
+      return '"' + s.replaceAll('"','""') + '"';
     }
-
-    // ---- Accept BOTH API styles ----
-    // v3 style: data.action = "stamp" | "query" | "getPin"
-    // newer:    data.type  = "stamp" | "employeeQuery" | "managerQuery"
-    const kind = String(data.action || data.type || "").trim();
-
-    if (kind === "getPin") return output(handleGetPin(data));
-    if (kind === "stamp") return output(handleStampCompat(data, logs, approved));
-    if (kind === "query") return output(handleQueryCompat(data, logs, approved));
-
-    if (kind === "employeeQuery") return output(handleEmployeeQuery(data, logs, approved));
-    if (kind === "managerQuery") return output(handleManagerQuery(data, logs));
-
-    return output({ ok: false, error: "Unknown action/type" });
-  } catch (err) {
-    return output({ ok: false, error: String(err && err.message ? err.message : err) });
-  }
+    return s;
+  }).join(",")).join("\n");
+  const blob = new Blob([lines], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `timeclock_${identity.name.replaceAll(" ","_")}_${els.from.value}_to_${els.to.value}.csv`;
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
-// -------------------- PIN CHECK (optional) --------------------
-function checkCompanyPin(pin) {
-  // No requirement if COMPANY_PIN is empty
-  if (!COMPANY_PIN) return { ok: true };
-  if (String(pin || "").trim() !== COMPANY_PIN) return { ok: false, error: "Invalid company PIN" };
-  return { ok: true };
+function exportXLSX(){
+  if(typeof XLSX === "undefined"){ alert("XLSX library not loaded yet."); return; }
+  const aoa = [["Date","Day","Name","Company","Clock In","Lunch Out","End Lunch","Clock Out","Lunch (mins)","Total Hours"]];
+  myRows.forEach(r=>{
+    aoa.push([
+      r.estDate,
+      r.day,
+      identity.name,
+      identity.company,
+      r.clockIn||"",
+      r.lunchOut||"",
+      r.endLunch||"",
+      r.clockOut||"",
+      calcLunchMins(r)===""?"":calcLunchMins(r),
+      calcTotalHours(r)===""?"":calcTotalHours(r)
+    ]);
+  });
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  ws["!freeze"] = {xSplit:0, ySplit:1};
+  XLSX.utils.book_append_sheet(wb, ws, "My Log");
+  XLSX.writeFile(wb, `timeclock_${identity.name.replaceAll(" ","_")}_${els.from.value}_to_${els.to.value}.xlsx`);
 }
 
-// -------------------- STAMP (v3 compat) --------------------
-function handleStampCompat(data, logs, approved) {
-  const name = String(data.name || "").trim();
-  const company = String(data.company || "").trim();
-
-  // v3 frontend sends field; newer sends action="clockIn" etc.
-  const field = String(data.field || data.action || "").trim(); // "clockIn" etc.
-  const pin = String(data.pin || "").trim();
-
-  if (!name || !company) return { ok: false, error: "Missing name or company" };
-
-  const pinCheck = checkCompanyPin(pin);
-  if (!pinCheck.ok) return pinCheck;
-
-  if (!isApproved(approved, name, company)) {
-    return { ok: false, error: "Employee not approved" };
+async function stampField(field){
+  if(!identity){ setMsg("Fill sign-in first."); return; }
+  setMsg("Saving…");
+  const res = await stamp({
+    name: identity.name,
+    company: identity.company,
+    estDate: tzDateISO(),
+    estTime: tzTimeHHMMSS(),
+    field
+  });
+  if(!res.ok){
+    setMsg("Error: " + (res.error || "Stamp failed"));
+    return;
   }
-
-  // v3 sends estDate/estTime; we’ll trust those, but also compute safely if missing
-  const now = new Date();
-  const estDate = String(data.estDate || Utilities.formatDate(now, TIMEZONE, "yyyy-MM-dd")).trim();
-  const estTime = String(data.estTime || Utilities.formatDate(now, TIMEZONE, "HH:mm:ss")).trim();
-  const dayStr = dayNameFromISO(estDate);
-  const updatedStr = Utilities.formatDate(now, TIMEZONE, "yyyy-MM-dd HH:mm:ss");
-
-  const colMap = { clockIn: 5, lunchOut: 6, endLunch: 7, clockOut: 8 };
-  if (!colMap[field]) return { ok: false, error: "Invalid field/action" };
-
-  let row = findRow(logs, name, company, estDate);
-
-  if (!row) {
-    logs.appendRow([estDate, dayStr, name, company, "", "", "", "", updatedStr]);
-    row = logs.getLastRow();
-  }
-
-  const cell = logs.getRange(row, colMap[field]);
-  if (cell.getValue()) {
-    return { ok: true, note: "Already stamped", field, time: cell.getValue() };
-  }
-
-  cell.setValue(estTime);
-  logs.getRange(row, 9).setValue(updatedStr);
-
-  return { ok: true, note: "Saved", field, time: estTime };
+  setMsg(res.note || "Saved.");
+  await refreshMyRows();
 }
 
-// -------------------- QUERY (v3 compat) --------------------
-function handleQueryCompat(data, logs, approved) {
-  const pin = String(data.pin || "").trim();
+function init(){
+  els.date.value = tzDateISO();
+  ensureDefaultRange();
+  enableButtons(false);
 
-  // Manager query if managerCode present
-  const managerCode = String(data.managerCode || "").trim();
-  if (managerCode) {
-    if (managerCode !== MANAGER_CODE) return { ok: false, error: "Invalid manager code" };
-    const from = String(data.from || "").trim();
-    const to = String(data.to || "").trim();
-    if (!from || !to) return { ok: false, error: "Missing date range (from/to)" };
-
-    const rows = getLogRows(logs, (r) => r.estDate >= from && r.estDate <= to);
-    return { ok: true, rows };
+  identity = loadIdentity();
+  if(identity){
+    els.name.value = identity.name || "";
+    els.company.value = identity.company || "";
   }
 
-  // Employee query
-  const name = String(data.name || "").trim();
-  const company = String(data.company || "").trim();
-  const from = String(data.from || "").trim();
-  const to = String(data.to || "").trim();
-
-  if (!name || !company) return { ok: false, error: "Missing name or company" };
-
-  const pinCheck = checkCompanyPin(pin);
-  if (!pinCheck.ok) return pinCheck;
-
-  if (!isApproved(approved, name, company)) {
-    return { ok: false, error: "Employee not approved" };
+  async function validateAndEnable(){
+    if(!identity) return;
+    setMsg("Validating…");
+    const res = await queryRange({
+      name: identity.name,
+      company: identity.company,
+      from: els.from.value,
+      to: els.to.value
+    });
+    if(!res.ok){
+      enableButtons(false);
+      setMsg("Not enabled: " + (res.error || "Validation failed"));
+      return;
+    }
+    enableButtons(true);
+    myRows = res.rows || [];
+    renderTable(myRows);
+    renderToday(todayRowFrom(myRows));
+    setMsg(res.note || "Enabled.");
   }
 
-  if (!from || !to) return { ok: false, error: "Missing date range (from/to)" };
-
-  const rows = getLogRows(logs, (r) =>
-    r.estDate >= from && r.estDate <= to &&
-    r.name === name &&
-    r.company === company
-  );
-
-  return { ok: true, rows };
-}
-
-// -------------------- NEWER STYLE (optional) --------------------
-function handleEmployeeQuery(data, logs, approved) {
-  // identical to queryCompat employee branch
-  return handleQueryCompat(
-    { action: "query", pin: data.pin, name: data.name, company: data.company, from: data.from, to: data.to },
-    logs,
-    approved
-  );
-}
-
-function handleManagerQuery(data, logs) {
-  const managerCode = String(data.managerCode || "").trim();
-  if (managerCode !== MANAGER_CODE) return { ok: false, error: "Invalid manager code" };
-
-  const from = String(data.from || "").trim();
-  const to = String(data.to || "").trim();
-  if (!from || !to) return { ok: false, error: "Missing date range (from/to)" };
-
-  const companyFilter = String(data.company || "").trim();
-
-  const rows = getLogRows(logs, (r) => {
-    const inRange = r.estDate >= from && r.estDate <= to;
-    const companyOk = !companyFilter || r.company === companyFilter;
-    return inRange && companyOk;
+  els.identityForm.addEventListener("submit", async (e)=>{
+    e.preventDefault();
+    const name = els.name.value.trim();
+    const company = els.company.value.trim();
+    if(!name || !company){ setMsg("Fill Name and Company."); return; }
+    identity = { name, company };
+    saveIdentity(identity);
+    await validateAndEnable();
   });
 
-  return { ok: true, rows };
-}
+  els.clear.addEventListener("click", ()=>{
+    clearIdentity();
+    identity = null;
+    els.name.value = "";
+    els.company.value = "";
+    enableButtons(false);
+    setMsg("Cleared.");
+  });
 
-function handleGetPin(data) {
-  // If you’re not requiring PINs, just return empty
-  if (!COMPANY_PIN) return { ok: true, pin: "" };
+  els.clockIn.addEventListener("click", ()=>stampField("clockIn"));
+  els.lunchOut.addEventListener("click", ()=>stampField("lunchOut"));
+  els.endLunch.addEventListener("click", ()=>stampField("endLunch"));
+  els.clockOut.addEventListener("click", ()=>stampField("clockOut"));
 
-  const managerCode = String(data.managerCode || "").trim();
-  if (managerCode !== MANAGER_CODE) return { ok: false, error: "Invalid manager code" };
-  return { ok: true, pin: COMPANY_PIN };
-}
+  els.refresh.addEventListener("click", refreshMyRows);
+  els.lastWeek.addEventListener("click", ()=>{
+    const r = weekRange("last"); els.from.value = r.from; els.to.value = r.to; refreshMyRows();
+  });
+  els.thisWeek.addEventListener("click", ()=>{
+    const r = weekRange("this"); els.from.value = r.from; els.to.value = r.to; refreshMyRows();
+  });
 
-// -------------------- HELPERS --------------------
-function isApproved(sheet, name, company) {
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    const n = String(data[i][0] || "").trim();
-    const c = String(data[i][1] || "").trim();
-    const s = String(data[i][2] || "").trim().toLowerCase();
-    if (n === name && c === company && (s === "approved" || s === "active" || s === "yes")) return true;
-  }
-  return false;
-}
+  els.from.addEventListener("change", refreshMyRows);
+  els.to.addEventListener("change", refreshMyRows);
+  els.exportCsv.addEventListener("click", exportCSV);
+  els.exportXlsx.addEventListener("click", exportXLSX);
 
-function findRow(sheet, name, company, date) {
-  const data = sheet.getDataRange().getValues();
-  for (let i = 1; i < data.length; i++) {
-    if (
-      String(data[i][0]).trim() === date &&
-      String(data[i][2]).trim() === name &&
-      String(data[i][3]).trim() === company
-    ) {
-      return i + 1;
-    }
-  }
-  return null;
+  if(identity) validateAndEnable();
 }
+init();
 
-function getLogRows(sheet, filterFn) {
-  const data = sheet.getDataRange().getValues();
-  const out = [];
-  for (let i = 1; i < data.length; i++) {
-    const r = {
-      estDate: String(data[i][0] || "").trim(),
-      day: String(data[i][1] || "").trim(),
-      name: String(data[i][2] || "").trim(),
-      company: String(data[i][3] || "").trim(),
-      clockIn: String(data[i][4] || "").trim(),
-      lunchOut: String(data[i][5] || "").trim(),
-      endLunch: String(data[i][6] || "").trim(),
-      clockOut: String(data[i][7] || "").trim(),
-      updated: String(data[i][8] || "").trim(),
-    };
-    if (filterFn(r)) out.push(r);
-  }
-  return out;
-}
-
-function dayNameFromISO(isoDate) {
-  // isoDate = yyyy-mm-dd
-  const d = new Date(isoDate + "T12:00:00");
-  return Utilities.formatDate(d, TIMEZONE, "EEE");
-}
-
-function output(obj) {
-  return ContentService.createTextOutput(JSON.stringify(obj))
-    .setMimeType(ContentService.MimeType.JSON);
-}
