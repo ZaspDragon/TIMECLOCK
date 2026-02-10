@@ -5,7 +5,7 @@
 
 export const CONFIG = {
   // Paste your Apps Script Web App URL (ends with /exec)
-  APPS_SCRIPT_URL: "https://script.google.com/macros/s/AKfycbxfCGA7y44H0mrJlmuGRhJACsbrjomtnFcwf17OX1U95cb-a8BQ5_jttDXCCpaRwCKCXQ/exec",
+  APPS_SCRIPT_URL: https://script.google.com/macros/s/AKfycbzBsaWz1IsitH9VBLC8OisOiLQDTnrq9cigQJbIyBxIfNjFRGTjSffR0F4QPmcGVry6/exec,
 
   // --- PIN Rotation ---
   // Choose: "daily" or "weekly"
