@@ -49,26 +49,9 @@ const els = {
 };
 
 // -------------------------
-// Hard safety: never reload via form submit
-// -------------------------
-document.addEventListener(
-  "submit",
-  (e) => {
-    e.preventDefault();
-  },
-  true
-);
-
-function forceNoSubmitButtons() {
-  document.querySelectorAll("button").forEach((b) => {
-    if (!b.getAttribute("type") || b.getAttribute("type") === "submit") {
-      // Keep the actual Save button as submit if you want,
-      // but making everything type=button prevents accidental reload.
-      b.type = "button";
-    }
-  });
-}
-forceNoSubmitButtons();
+// Hard safety: never reload via form 
+document.addEventListener("submit", (e) => e.preventDefault(), true);
+  
 
 // -------------------------
 // Identity + state
