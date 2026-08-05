@@ -1,100 +1,83 @@
-# Time Clock (Google Sheets backend) — NO Firebase (v2)
+# QRTimeClock 2
 
-This works on **GitHub Pages** and saves ALL time to **one master Google Sheet**.
+A clean, Firebase-ready rebuild of the temp staffing timeclock.
 
-✅ Added in v2:
-1) **Approved Employee List** (only approved can submit)
-2) **Rotating Company PIN** (daily or weekly)
-3) **Manager code required** to view current PIN + run reports + export
+This repository is separate from `ZaspDragon/QRTimeclock`. No legacy production data is connected or modified.
 
----
+## Current phase
 
-## What you get
-- Employees: Name + Company + **Rotating PIN** → stamp times
-- Manager: **Manager Code** → see current PIN + everyone's hours + export master Excel
-- Timezone forced to **America/New_York (Eastern)**
+The repository now contains a mobile-first staging foundation with:
 
----
+- Clock In, Start Lunch, End Lunch, and Clock Out
+- punch-sequence validation
+- duplicate-tap/idempotency protection
+- OH01/OHC branch locking support
+- staffing-agency scope fields
+- complete punch schema fields
+- read-only worker time lookup
+- daily and weekly hour calculations
+- regular and overtime summaries
+- manager attendance metrics
+- Firebase configuration template
+- starter Firestore security rules
 
-## Step 1) Create your Google Sheet
-1. Create a new Google Sheet (any name)
-2. Open it
+Until Firebase is connected, punches are stored only in the current browser's `localStorage` as demo data. This is intentional so no old production records are reused.
 
----
+## GitHub Pages
 
-## Step 2) Add the Apps Script backend
-1. In the sheet: **Extensions → Apps Script**
-2. Paste the code from: `apps_script_backend.js`
-3. Edit CONFIG at the top:
+Enable GitHub Pages for the `main` branch and root folder. Branch-specific QR routes are designed as:
 
-```js
-PIN_MODE: "weekly",           // or "daily"
-BASE_PIN_SECRET: "SIDEHUSTLE",// keep private
-MANAGER_CODE: "MANAGER123",
-```
+- `/clock/OH01`
+- `/clock/OHC`
 
----
+For static GitHub Pages, a redirect/rewrite layer or query-based fallback may be added during Firebase connection.
 
-## Step 3) Deploy the Apps Script as a Web App
-1. Click **Deploy → New deployment**
-2. Select **Web app**
-3. **Execute as:** Me
-4. **Who has access:** Anyone
-5. Deploy → Authorize
-6. Copy the Web App URL ending with `/exec`
+## Firebase setup
 
----
+1. Create a brand-new Firebase project for QRTimeClock 2.
+2. Enable Firebase Authentication with Email/Password for managers and agency admins.
+3. Create Firestore in production mode.
+4. Copy `firebase-config.example.js` to `firebase-config.js`.
+5. Replace the placeholder values with the new project's web configuration.
+6. Deploy `firestore.rules` after reviewing the final production schema.
+7. Add required composite indexes as the manager dashboards and exports are implemented.
+8. Never connect the old QRTimeclock collections directly. Use the future migration preview tool.
 
-## Step 4) Put the Web App URL into the website
-Open `config.js` and set:
+## Planned collections
 
-```js
-APPS_SCRIPT_URL: "PASTE_YOUR_WEB_APP_URL_HERE"
-PIN_MODE: "weekly",
-BASE_PIN_SECRET: "SIDEHUSTLE",
-MANAGER_CODE: "MANAGER123",
-```
+- `users`
+- `workers`
+- `punches`
+- `punchEdits`
+- `correctionRequests`
+- `weeklyTimecards`
+- `agencies`
+- `branches`
+- `auditLogs`
+- `migrationJobs`
 
-> Note: the website does NOT compute the PIN — it validates PIN server-side.
-> Managers can see the current PIN on the Manager Dashboard after entering the manager code.
+## Safety
 
----
+- Punches are soft-deleted only.
+- Names are display fields, not canonical IDs.
+- Every punch carries company, agency, branch, worker, date, week, timestamp, source, and audit fields.
+- Agency admins will be restricted to their own agency.
+- OH01 and OHC remain isolated unless an authorized account explicitly selects both.
+- The old repository and old Firestore data remain untouched.
 
-## Step 5) Approve employees
-In your Google Sheet, a tab will be created automatically:
+## Rollback
 
-**ApprovedEmployees**
-Columns:
-- name
-- company
-- status (use: approved)
+The previous `TIMECLOCK` repository state is preserved on:
 
-Add each employee like:
-- John Smith | SideHustle | approved
+`backup/pre-qrtimeclock2-import-2026-08-05`
 
-If they are not listed as approved, the app will reject stamps and history reads.
+To restore it, move `main` back to that branch's commit.
 
----
+## Next implementation phases
 
-## Step 6) Deploy to GitHub Pages
-Upload these files to your repo root and turn on GitHub Pages:
-- index.html
-- manager.html
-- style.css
-- config.js
-- common.js
-- api.js
-- employee.js
-- manager.js
-- apps_script_backend.js (reference)
-- README.html (optional)
-
-GitHub: Settings → Pages → Deploy from branch → main / root.
-
----
-
-## Rotating PIN format
-- Weekly (default): `BASE_PIN_SECRET-YYYYWww` (example: `SIDEHUSTLE-2026W05`)
-- Daily: `BASE_PIN_SECRET-YYYY-MM-DD` (example: `SIDEHUSTLE-2026-02-05`)
-
-The **Manager Dashboard** shows the current PIN after you enter the manager code.
+1. Firebase services and canonical worker registration
+2. Manager authentication and permissions
+3. Edit punches, missing punches, and audit history
+4. Live Agency Export, CSV, PDF, and Excel output
+5. Duplicate review, merge rollback, diagnostics, and migration preview
+6. Vitest and Playwright coverage
