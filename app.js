@@ -1,427 +1,157 @@
-/* Time Clock (GitHub Pages friendly)
-   - Stores per-device logs in localStorage
-   - One-click timestamps in America/New_York time zone
-   - Export CSV or XLSX
-*/
-(function(){
-  const TZ = "America/New_York";
+const STORAGE_KEY = 'qrtimeclock2_demo_v1';
+const COMPANY_ID = 'chadwell';
+const ACTIONS = ['clock_in','start_lunch','end_lunch','clock_out'];
+const ACTION_LABELS = {clock_in:'Clock In',start_lunch:'Start Lunch',end_lunch:'End Lunch',clock_out:'Clock Out'};
+const NEXT_ACTION = {none:'clock_in',clock_in:'start_lunch',start_lunch:'end_lunch',end_lunch:'clock_out',clock_out:'clock_in'};
 
-  const $ = (id) => document.getElementById(id);
+const state = { range:'this_week', records:loadRecords() };
 
-  const els = {
-    estNow: $("estNow"),
-    estDate: $("estDate"),
-    name: $("name"),
-    company: $("company"),
-    date: $("date"),
-    identityForm: $("identityForm"),
-    clearIdentity: $("clearIdentity"),
-    statusText: $("statusText"),
+function loadRecords(){
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); }
+  catch { return []; }
+}
+function saveRecords(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state.records)); }
+function normalizeName(v){ return String(v||'').trim().toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,''); }
+function titleName(v){ return String(v||'').trim().replace(/\s+/g,' ').replace(/\b\w/g,c=>c.toUpperCase()); }
+function pad(v){ return String(v).padStart(2,'0'); }
+function dateKey(d){ return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`; }
+function mondayKey(d){ const x=new Date(d); const day=x.getDay(); x.setDate(x.getDate()+(day===0?-6:1-day)); x.setHours(0,0,0,0); return dateKey(x); }
+function formatTime(ms){ return new Date(ms).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}); }
+function formatDate(ms){ return new Date(ms).toLocaleDateString([],{weekday:'short',month:'short',day:'numeric'}); }
+function branchFromUrl(){ const parts=location.pathname.split('/').filter(Boolean); const candidate=parts.at(-1)?.toUpperCase(); return ['OH01','OHC'].includes(candidate)?candidate:null; }
+function workerKey(name,agency,branch){ return `${COMPANY_ID}|${agency}|${branch}|${normalizeName(name)}`; }
+function id(){ return crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(16).slice(2)}`; }
 
-    clockIn: $("clockIn"),
-    lunchOut: $("lunchOut"),
-    endLunch: $("endLunch"),
-    clockOut: $("clockOut"),
+function nowTick(){
+  const now=new Date();
+  document.querySelector('#liveTime').textContent=now.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'});
+  document.querySelector('#liveDate').textContent=now.toLocaleDateString([],{weekday:'long',month:'short',day:'numeric'});
+}
+setInterval(nowTick,1000); nowTick();
 
-    vClockIn: $("vClockIn"),
-    vLunchOut: $("vLunchOut"),
-    vEndLunch: $("vEndLunch"),
-    vClockOut: $("vClockOut"),
-    vHours: $("vHours"),
-    vBreakdown: $("vBreakdown"),
+const lockedBranch=branchFromUrl();
+if(lockedBranch){
+  const select=document.querySelector('#branchId'); select.value=lockedBranch; select.disabled=true;
+  document.querySelector('#branchLabel').textContent=`Branch: ${lockedBranch} (QR locked)`;
+}
 
-    logBody: $("logBody"),
-    exportCsv: $("exportCsv"),
-    exportXlsx: $("exportXlsx"),
-    downloadTemplate: $("downloadTemplate"),
-    wipeData: $("wipeData")
+document.querySelectorAll('.tab').forEach(btn=>btn.addEventListener('click',()=>{
+  document.querySelectorAll('.tab').forEach(x=>x.classList.toggle('active',x===btn));
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.querySelector(`#${btn.dataset.view}View`).classList.add('active');
+  if(btn.dataset.view==='manager') updateManagerMetrics();
+}));
+
+document.querySelectorAll('.range-btn').forEach(btn=>btn.addEventListener('click',()=>{
+  state.range=btn.dataset.range;
+  document.querySelectorAll('.range-btn').forEach(x=>x.classList.toggle('active',x===btn));
+  renderLookup();
+}));
+
+document.querySelectorAll('.punch-btn').forEach(btn=>btn.addEventListener('click',()=>createPunch(btn.dataset.action,btn)));
+document.querySelector('#workerName').addEventListener('input',renderToday);
+document.querySelector('#agencyId').addEventListener('change',renderToday);
+document.querySelector('#branchId').addEventListener('change',()=>{document.querySelector('#branchLabel').textContent=`Branch: ${document.querySelector('#branchId').value}`;renderToday();});
+document.querySelector('#refreshTime').addEventListener('click',renderLookup);
+document.querySelector('#lookupName').addEventListener('input',renderLookup);
+
+function scopedWorkerRecords(name,agency,branch){
+  const key=workerKey(name,agency,branch);
+  return state.records.filter(r=>r.workerIdentityKey===key && r.active!==false && r.status!=='deleted').sort((a,b)=>a.timestampMs-b.timestampMs);
+}
+function todayRecords(name,agency,branch){ const dk=dateKey(new Date()); return scopedWorkerRecords(name,agency,branch).filter(r=>r.dateKey===dk); }
+function latestAction(records){ return records.length?records.at(-1).action:'none'; }
+
+function createPunch(action,button){
+  const name=titleName(document.querySelector('#workerName').value);
+  const agencyId=document.querySelector('#agencyId').value;
+  const branchId=document.querySelector('#branchId').value;
+  if(normalizeName(name).length<2){ return setStatus('Enter your full name before punching.','error'); }
+  if(!ACTIONS.includes(action)) return;
+  const today=todayRecords(name,agencyId,branchId);
+  const last=latestAction(today);
+  const expected=NEXT_ACTION[last];
+  const allowed=(action===expected)||(last==='clock_in'&&action==='clock_out')||(last==='clock_out'&&action==='clock_in');
+  if(!allowed){ return setStatus(`Next expected action is ${ACTION_LABELS[expected]}.`,'error'); }
+  button.disabled=true;
+  const now=new Date();
+  const workerIdentityKey=workerKey(name,agencyId,branchId);
+  const punch={
+    id:id(), companyId:COMPANY_ID, agencyId, branchId,
+    workerId:`pending_${btoa(workerIdentityKey).replace(/=/g,'').slice(-18)}`,
+    employeeNumber:'PENDING-FIREBASE', workerDisplayName:name, normalizedName:normalizeName(name),
+    workerIdentityKey, action, timestampMs:now.getTime(), timestamp:now.toISOString(),
+    dateKey:dateKey(now), weekKey:mondayKey(now), timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+    source:'public_clock', status:'active', active:true,
+    idempotencyKey:`${workerIdentityKey}|${action}|${Math.floor(now.getTime()/60000)}`,
+    createdBy:'public_clock_demo', createdAt:now.toISOString(), updatedAt:now.toISOString()
   };
-
-  const STORAGE_KEY = "timeclock_logs_v1";
-  const IDENTITY_KEY = "timeclock_identity_v1";
-
-  function pad(n){ return String(n).padStart(2,"0"); }
-
-  function nowPartsEST(){
-    // Use Intl to format into parts in a specific timezone
-    const dtf = new Intl.DateTimeFormat("en-US", {
-      timeZone: TZ,
-      year: "numeric", month: "2-digit", day: "2-digit",
-      hour: "2-digit", minute: "2-digit", second: "2-digit",
-      hour12: false
-    });
-    const parts = dtf.formatToParts(new Date()).reduce((acc,p)=>{
-      if(p.type !== "literal") acc[p.type] = p.value;
-      return acc;
-    }, {});
-    // parts: month, day, year, hour, minute, second
-    return parts;
+  if(state.records.some(r=>r.idempotencyKey===punch.idempotencyKey)){
+    button.disabled=false; return setStatus('That punch was already saved.','error');
   }
+  state.records.push(punch); saveRecords();
+  setStatus(`${name} — ${ACTION_LABELS[action]} saved at ${formatTime(punch.timestampMs)}.`,'success');
+  renderToday(); updateManagerMetrics();
+  setTimeout(()=>button.disabled=false,700);
+}
+function setStatus(message,type=''){
+  const el=document.querySelector('#statusMessage'); el.textContent=message; el.className=`status-message ${type}`.trim();
+}
+function renderToday(){
+  const name=document.querySelector('#workerName').value;
+  const agency=document.querySelector('#agencyId').value;
+  const branch=document.querySelector('#branchId').value;
+  const rows=todayRecords(name,agency,branch);
+  const wrap=document.querySelector('#todayTimeline');
+  const last=latestAction(rows);
+  document.querySelector('#workerState').textContent=last==='none'?'Not started':last==='start_lunch'?'On lunch':last==='clock_out'?'Clocked out':'Clocked in';
+  if(!rows.length){wrap.className='timeline empty';wrap.textContent='No punches yet.';return;}
+  wrap.className='timeline';
+  wrap.innerHTML=rows.map(r=>`<div class="timeline-item"><strong>${ACTION_LABELS[r.action]}</strong><span>${formatTime(r.timestampMs)}</span></div>`).join('');
+}
 
-  function estDateISO(){
-    const p = nowPartsEST();
-    return `${p.year}-${p.month}-${p.day}`;
-  }
+function rangeBounds(){
+  const now=new Date(); let start,end;
+  if(state.range==='this_week'){ start=new Date(`${mondayKey(now)}T00:00:00`); end=new Date(start); end.setDate(end.getDate()+7); }
+  else if(state.range==='last_week'){ end=new Date(`${mondayKey(now)}T00:00:00`); start=new Date(end); start.setDate(start.getDate()-7); }
+  else { start=new Date(now.getFullYear(),now.getMonth(),1); end=new Date(now.getFullYear(),now.getMonth()+1,1); }
+  return [start.getTime(),end.getTime()];
+}
+function renderLookup(){
+  const name=document.querySelector('#lookupName').value;
+  const normalized=normalizeName(name);
+  const [start,end]=rangeBounds();
+  const rows=state.records.filter(r=>r.normalizedName===normalized&&r.active!==false&&r.timestampMs>=start&&r.timestampMs<end).sort((a,b)=>a.timestampMs-b.timestampMs);
+  const records=document.querySelector('#timeRows');
+  if(normalized.length<2){records.className='records empty';records.textContent='Enter a name to view time.';document.querySelector('#timeSummary').innerHTML='';return;}
+  const days=groupDays(rows); const total=Object.values(days).reduce((s,d)=>s+d.hours,0);
+  document.querySelector('#timeSummary').innerHTML=`<div class="metric"><span>Days</span><strong>${Object.keys(days).length}</strong></div><div class="metric"><span>Total hours</span><strong>${total.toFixed(2)}</strong></div><div class="metric"><span>Regular</span><strong>${Math.min(40,total).toFixed(2)}</strong></div><div class="metric"><span>Overtime</span><strong>${Math.max(0,total-40).toFixed(2)}</strong></div>`;
+  if(!Object.keys(days).length){records.className='records empty';records.textContent='No punches found for this range.';return;}
+  records.className='records';
+  records.innerHTML=Object.values(days).map(d=>`<div class="record-row"><div><strong>${formatDate(d.firstMs)}</strong><span>${d.warning||'Complete day'}</span></div><div><strong>${d.hours.toFixed(2)} hrs</strong><span>${d.times.join(' · ')}</span></div></div>`).join('');
+}
+function groupDays(rows){
+  const groups={};
+  rows.forEach(r=>{(groups[r.dateKey]??=[]).push(r)});
+  const out={};
+  Object.entries(groups).forEach(([key,list])=>{
+    const by=a=>list.filter(x=>x.action===a);
+    const ci=by('clock_in')[0], co=by('clock_out').at(-1), lo=by('start_lunch')[0], li=by('end_lunch')[0];
+    let ms=ci&&co?co.timestampMs-ci.timestampMs:0;
+    if(lo&&li&&li.timestampMs>lo.timestampMs) ms-=li.timestampMs-lo.timestampMs;
+    out[key]={firstMs:list[0].timestampMs,hours:Math.max(0,ms/3600000),warning:!ci||!co?'Missing clock in/out':'',times:list.map(x=>`${ACTION_LABELS[x.action]} ${formatTime(x.timestampMs)}`)};
+  });
+  return out;
+}
+function updateManagerMetrics(){
+  const today=dateKey(new Date()); const workers=new Map();
+  state.records.filter(r=>r.dateKey===today&&r.active!==false).forEach(r=>workers.set(r.workerIdentityKey,r));
+  let inCount=0,lunch=0,out=0;
+  workers.forEach(r=>{if(r.action==='start_lunch')lunch++;else if(r.action==='clock_out')out++;else inCount++;});
+  document.querySelector('#metricIn').textContent=inCount;
+  document.querySelector('#metricLunch').textContent=lunch;
+  document.querySelector('#metricOut').textContent=out;
+  document.querySelector('#metricExceptions').textContent=0;
+}
 
-  function estTimeHHMMSS(){
-    const p = nowPartsEST();
-    return `${p.hour}:${p.minute}:${p.second}`;
-  }
-
-  function estPrettyDate(){
-    const fmt = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday:"short", year:"numeric", month:"short", day:"2-digit" });
-    return fmt.format(new Date());
-  }
-
-  function estPrettyTime(){
-    // 24-hour
-    const fmt = new Intl.DateTimeFormat("en-US", { timeZone: TZ, hour:"2-digit", minute:"2-digit", second:"2-digit", hour12:false });
-    return fmt.format(new Date());
-  }
-
-  function loadIdentity(){
-    try{
-      return JSON.parse(localStorage.getItem(IDENTITY_KEY) || "null");
-    }catch(e){ return null; }
-  }
-
-  function saveIdentity(identity){
-    localStorage.setItem(IDENTITY_KEY, JSON.stringify(identity));
-  }
-
-  function loadLogs(){
-    try{
-      return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
-    }catch(e){ return []; }
-  }
-
-  function saveLogs(logs){
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(logs));
-  }
-
-  function dayNameFromISO(iso){
-    const [y,m,d] = iso.split("-").map(Number);
-    // Build a Date in UTC and then format in EST to get weekday for that date
-    const dt = new Date(Date.UTC(y, m-1, d, 12, 0, 0)); // midday avoids DST edge weirdness
-    const fmt = new Intl.DateTimeFormat("en-US", { timeZone: TZ, weekday: "short" });
-    return fmt.format(dt);
-  }
-
-  function getOrCreateRow(logs, identity){
-    const key = `${identity.date}__${identity.name}__${identity.company}`;
-    let row = logs.find(r => r._key === key);
-    if(!row){
-      row = {
-        _key: key,
-        date: identity.date,
-        day: dayNameFromISO(identity.date),
-        name: identity.name,
-        company: identity.company,
-        clockIn: "",
-        lunchOut: "",
-        endLunch: "",
-        clockOut: "",
-        notes: ""
-      };
-      logs.unshift(row); // most recent on top
-    }
-    return row;
-  }
-
-  function hhmmssToSeconds(t){
-    if(!t) return null;
-    const [h, m, s] = t.split(":").map(Number);
-    if([h,m,s].some(n => Number.isNaN(n))) return null;
-    return h*3600 + m*60 + s;
-  }
-
-  function secondsToHours(sec){
-    return sec / 3600;
-  }
-
-  function calcLunchMins(row){
-    const a = hhmmssToSeconds(row.lunchOut);
-    const b = hhmmssToSeconds(row.endLunch);
-    if(a == null || b == null) return "";
-    const diff = Math.max(0, b - a);
-    return Math.round(diff/60);
-  }
-
-  function calcTotalHours(row){
-    const inS = hhmmssToSeconds(row.clockIn);
-    const outS = hhmmssToSeconds(row.clockOut);
-    if(inS == null || outS == null) return "";
-    let worked = Math.max(0, outS - inS);
-    const lunch = hhmmssToSeconds(row.endLunch) != null && hhmmssToSeconds(row.lunchOut) != null
-      ? Math.max(0, hhmmssToSeconds(row.endLunch) - hhmmssToSeconds(row.lunchOut))
-      : 0;
-    worked = Math.max(0, worked - lunch);
-    const hours = secondsToHours(worked);
-    return Math.round(hours * 100) / 100; // 2 decimals
-  }
-
-  function statusFor(row){
-    if(row.clockOut) return "Clocked Out";
-    if(row.endLunch) return "Working";
-    if(row.lunchOut) return "At Lunch";
-    if(row.clockIn) return "Clocked In";
-    return "Not started";
-  }
-
-  function renderToday(row){
-    els.vClockIn.textContent = row.clockIn || "—";
-    els.vLunchOut.textContent = row.lunchOut || "—";
-    els.vEndLunch.textContent = row.endLunch || "—";
-    els.vClockOut.textContent = row.clockOut || "—";
-
-    const lunchMins = calcLunchMins(row);
-    const totalHours = calcTotalHours(row);
-
-    els.vHours.textContent = totalHours === "" ? "—" : `${totalHours} hrs`;
-    const pieces = [];
-    if(row.clockIn && row.clockOut) pieces.push(`Shift: ${row.clockIn} → ${row.clockOut}`);
-    if(lunchMins !== "") pieces.push(`Lunch: ${lunchMins} mins`);
-    els.vBreakdown.textContent = pieces.join(" • ");
-    els.statusText.textContent = statusFor(row);
-
-    // button rules: enforce order
-    els.clockIn.disabled = !!row.clockIn;
-    els.lunchOut.disabled = !row.clockIn || !!row.lunchOut || !!row.clockOut;
-    els.endLunch.disabled = !row.lunchOut || !!row.endLunch || !!row.clockOut;
-    els.clockOut.disabled = !row.clockIn || !!row.clockOut; // allow clock out even if no lunch used
-  }
-
-  function renderTable(logs){
-    els.logBody.innerHTML = "";
-    logs.forEach((row, idx) => {
-      const tr = document.createElement("tr");
-
-      const lunchMins = calcLunchMins(row);
-      const totalHours = calcTotalHours(row);
-
-      const cells = [
-        row.date,
-        row.day,
-        row.name,
-        row.company,
-        row.clockIn || "",
-        row.lunchOut || "",
-        row.endLunch || "",
-        row.clockOut || "",
-        lunchMins === "" ? "" : String(lunchMins),
-        totalHours === "" ? "" : String(totalHours),
-        row.notes || ""
-      ];
-
-      cells.forEach((val, i) => {
-        const td = document.createElement("td");
-        td.textContent = val;
-        if(i === 10){
-          td.contentEditable = "true";
-          td.addEventListener("input", () => {
-            row.notes = td.textContent.trim();
-            saveLogs(logs);
-          });
-        }
-        tr.appendChild(td);
-      });
-
-      els.logBody.appendChild(tr);
-    });
-  }
-
-  function requireIdentity(){
-    const identity = loadIdentity();
-    if(!identity || !identity.name || !identity.company || !identity.date) return null;
-    return identity;
-  }
-
-  function setIdentityForm(identity){
-    els.name.value = identity?.name || "";
-    els.company.value = identity?.company || "";
-    els.date.value = identity?.date || estDateISO();
-  }
-
-  function initClock(){
-    // live EST badge
-    function tick(){
-      els.estNow.textContent = estPrettyTime();
-      els.estDate.textContent = estPrettyDate();
-    }
-    tick();
-    setInterval(tick, 500);
-  }
-
-  function downloadBlob(filename, blob){
-    const a = document.createElement("a");
-    const url = URL.createObjectURL(blob);
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
-  }
-
-  function logsToAOA(logs){
-    const header = ["Date","Day","Name","Company","Clock In","Lunch Out","End Lunch","Clock Out","Lunch (mins)","Total Hours","Notes"];
-    const rows = logs.map(r => [
-      r.date,
-      r.day,
-      r.name,
-      r.company,
-      r.clockIn || "",
-      r.lunchOut || "",
-      r.endLunch || "",
-      r.clockOut || "",
-      calcLunchMins(r) === "" ? "" : calcLunchMins(r),
-      calcTotalHours(r) === "" ? "" : calcTotalHours(r),
-      r.notes || ""
-    ]);
-    return [header, ...rows];
-  }
-
-  function exportCSV(logs){
-    const aoa = logsToAOA(logs);
-    const lines = aoa.map(row => row.map(v => {
-      const s = String(v ?? "");
-      if(s.includes(",") || s.includes('"') || s.includes("\n")){
-        return '"' + s.replaceAll('"','""') + '"';
-      }
-      return s;
-    }).join(",")).join("\n");
-    const blob = new Blob([lines], {type:"text/csv;charset=utf-8"});
-    downloadBlob(`timeclock_log_${estDateISO()}.csv`, blob);
-  }
-
-  function exportXLSX(logs){
-    if(typeof XLSX === "undefined"){
-      alert("XLSX library not loaded yet. Try again in a second.");
-      return;
-    }
-    const aoa = logsToAOA(logs);
-    const wb = XLSX.utils.book_new();
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    ws["!freeze"] = {xSplit:0, ySplit:1};
-    XLSX.utils.book_append_sheet(wb, ws, "Log");
-
-    // Add a simple "Template" sheet too
-    const t = [
-      ["Time Clock Template (fill or paste exports here)"],
-      [],
-      ["Date","Day","Name","Company","Clock In","Lunch Out","End Lunch","Clock Out","Lunch (mins)","Total Hours","Notes"]
-    ];
-    const ws2 = XLSX.utils.aoa_to_sheet(t);
-    XLSX.utils.book_append_sheet(wb, ws2, "Template");
-
-    XLSX.writeFile(wb, `timeclock_log_${estDateISO()}.xlsx`);
-  }
-
-  function downloadBlankTemplate(){
-    if(typeof XLSX === "undefined"){
-      alert("XLSX library not loaded yet. Try again in a second.");
-      return;
-    }
-    const wb = XLSX.utils.book_new();
-    const aoa = [
-      ["MASTER TIME LOG (Template)"],
-      ["Use this to combine exports from employees."],
-      [],
-      ["Date","Day","Name","Company","Clock In","Lunch Out","End Lunch","Clock Out","Lunch (mins)","Total Hours","Notes"]
-    ];
-    const ws = XLSX.utils.aoa_to_sheet(aoa);
-    XLSX.utils.book_append_sheet(wb, ws, "Master Log");
-    XLSX.writeFile(wb, "master_time_log_template.xlsx");
-  }
-
-  function main(){
-    initClock();
-
-    // default date to today's EST
-    els.date.value = estDateISO();
-
-    const logs = loadLogs();
-    const identity = loadIdentity();
-    setIdentityForm(identity);
-
-    // Render table and today's panel if possible
-    renderTable(logs);
-
-    const todayIdentity = requireIdentity();
-    if(todayIdentity){
-      const row = getOrCreateRow(logs, todayIdentity);
-      saveLogs(logs);
-      renderToday(row);
-      renderTable(logs);
-    }else{
-      // Disable buttons until identity saved
-      [els.clockIn, els.lunchOut, els.endLunch, els.clockOut].forEach(b => b.disabled = true);
-    }
-
-    els.identityForm.addEventListener("submit", (e) => {
-      e.preventDefault();
-      const name = els.name.value.trim();
-      const company = els.company.value.trim();
-      const date = els.date.value;
-      if(!name || !company || !date){
-        alert("Please fill Name, Company, and Date.");
-        return;
-      }
-      const id = {name, company, date};
-      saveIdentity(id);
-
-      const row = getOrCreateRow(logs, id);
-      saveLogs(logs);
-      renderToday(row);
-      renderTable(logs);
-    });
-
-    els.clearIdentity.addEventListener("click", () => {
-      localStorage.removeItem(IDENTITY_KEY);
-      setIdentityForm(null);
-      els.statusText.textContent = "Not started";
-      [els.clockIn, els.lunchOut, els.endLunch, els.clockOut].forEach(b => b.disabled = true);
-      alert("Cleared identity. Fill the form to start again.");
-    });
-
-    function stamp(field){
-      const id = requireIdentity();
-      if(!id){
-        alert("Fill in Name, Company, and Date first.");
-        return;
-      }
-      const row = getOrCreateRow(logs, id);
-      if(row[field]) return; // already stamped
-      row[field] = estTimeHHMMSS();
-      saveLogs(logs);
-      renderToday(row);
-      renderTable(logs);
-    }
-
-    els.clockIn.addEventListener("click", () => stamp("clockIn"));
-    els.lunchOut.addEventListener("click", () => stamp("lunchOut"));
-    els.endLunch.addEventListener("click", () => stamp("endLunch"));
-    els.clockOut.addEventListener("click", () => stamp("clockOut"));
-
-    els.exportCsv.addEventListener("click", () => exportCSV(loadLogs()));
-    els.exportXlsx.addEventListener("click", () => exportXLSX(loadLogs()));
-    els.downloadTemplate.addEventListener("click", () => downloadBlankTemplate());
-
-    els.wipeData.addEventListener("click", () => {
-      const ok = confirm("This will erase ALL saved logs on this device/browser. Continue?");
-      if(!ok) return;
-      localStorage.removeItem(STORAGE_KEY);
-      renderTable([]);
-      els.vClockIn.textContent = "—";
-      els.vLunchOut.textContent = "—";
-      els.vEndLunch.textContent = "—";
-      els.vClockOut.textContent = "—";
-      els.vHours.textContent = "—";
-      els.vBreakdown.textContent = "";
-      els.statusText.textContent = "Not started";
-      alert("Cleared.");
-    });
-  }
-
-  window.addEventListener("DOMContentLoaded", main);
-})();
+renderToday(); renderLookup(); updateManagerMetrics();
