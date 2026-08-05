@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+    function profile() { return get(/databases/$(database)/documents/users/$(request.auth.uid)).data; }
+    function activeUser() { return signedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && profile().active == true; }
+    function role() { return activeUser() ? profile().role : ''; }
+    function owner() { return role() in ['owner','super_admin']; }
+    function admin() { return role() in ['owner','super_admin','admin']; }
+    function manager() { return role() in ['owner','super_admin','admin','manager','supervisor']; }
+    function agencyAdmin() { return role() == 'agency_admin'; }
+    function sameCompany(data) { return activeUser() && data.companyId == profile().companyId; }
+    function branchAllowed(data) { return owner() || (data.branchId in profile().branchIds); }
+    function agencyAllowed(data) { return !agencyAdmin() || data.agencyId == profile().agencyId; }
+    function inScope(data) { return sameCompany(data) && branchAllowed(data) && agencyAllowed(data); }
+
+    match /users/{uid} {
+      allow read: if activeUser() && (request.auth.uid == uid || admin());
+      allow create, update: if admin();
+      allow delete: if false;
+    }
+
+    match /workers/{workerId} {
+      allow read: if activeUser() && inScope(resource.data);
+      allow create, update: if manager() && inScope(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /punches/{punchId} {
+      allow read: if activeUser() && inScope(resource.data);
+      allow create: if request.resource.data.companyId == 'chadwell'
+        && request.resource.data.workerId is string
+        && request.resource.data.workerId.size() > 0
+        && request.resource.data.agencyId is string
+        && request.resource.data.branchId in ['OH01','OHC']
+        && request.resource.data.action in ['clock_in','start_lunch','end_lunch','clock_out']
+        && request.resource.data.timestampMs is number
+        && request.resource.data.dateKey is string
+        && request.resource.data.weekKey is string
+        && request.resource.data.status == 'active'
+        && request.resource.data.active == true
+        && request.resource.data.idempotencyKey is string;
+      allow update: if manager() && inScope(resource.data) && inScope(request.resource.data);
+      allow delete: if false;
+    }
+
+    match /punchEdits/{editId} {
+      allow read: if activeUser() && inScope(resource.data);
+      allow create: if manager() && inScope(request.resource.data);
+      allow update, delete: if false;
+    }
+
+    match /agencies/{agencyId} {
+      allow read: if activeUser();
+      allow write: if admin();
+    }
+
+    match /branches/{branchId} {
+      allow read: if true;
+      allow write: if admin();
+    }
+  }
+}
