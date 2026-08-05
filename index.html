@@ -2,137 +2,144 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Time Clock</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <meta name="theme-color" content="#07111f" />
+  <title>QRTimeClock 2</title>
   <link rel="stylesheet" href="style.css" />
-  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js" defer></script>
-  <script type="module" src="employee.js"></script>
 </head>
 <body>
-  <main class="container">
-    <header class="header">
+  <div class="app-shell">
+    <header class="topbar">
       <div>
-        <h1>Time Clock</h1>
-        <p class="subtitle">Name + Company → one-click stamps (Eastern Time) → saved to a master Google Sheet</p>
+        <p class="eyebrow">Temp Staffing Timeclock</p>
+        <h1>QRTimeClock 2</h1>
+        <p id="branchLabel" class="muted">Branch: OH01</p>
       </div>
-      <div class="badge">
-        <div class="badge-label">Current EST</div>
-        <div id="now" class="badge-time">--:--:--</div>
-        <div id="datePretty" class="badge-date">---- --, ----</div>
+      <div class="clock-card" aria-live="polite">
+        <strong id="liveTime">--:--</strong>
+        <span id="liveDate">Loading date…</span>
       </div>
     </header>
 
-    <section class="card">
-      <div class="card-head">
-        <div>
-          <h2>Sign In</h2>
-          <p class="muted">Employees enter Name + Company. Manager uses separate code.</p>
-        </div>
-        <div class="row">
-          <a class="btn" href="manager.html">Manager Dashboard</a>
-        </div>
-      </div>
+    <nav class="tabs" aria-label="Primary navigation">
+      <button class="tab active" data-view="clock">Clock</button>
+      <button class="tab" data-view="time">My Time</button>
+      <button class="tab" data-view="manager">Manager</button>
+    </nav>
 
-      <form id="identityForm" class="grid4" autocomplete="off">
-        <label>
-          <span>Name</span>
-          <input id="name" type="text" placeholder="Brandon Evanshine" required />
-        </label>
-        <label>
-          <span>Company</span>
-          <input id="company" type="text" placeholder="SideHustle" required />
-        </label>
-        <label>
-          <span>Date (EST)</span>
-          <input id="date" type="date" required />
-        </label>
-      
+    <main>
+      <section id="clockView" class="view active">
+        <article class="card hero-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Fast worker flow</p>
+              <h2>Find your profile</h2>
+            </div>
+            <span id="connectionBadge" class="badge warning">Demo storage</span>
+          </div>
 
-        <div class="row">
-          <button class="btn primary" id="saveEnable" type="submit">Save & Enable Buttons</button>
-          <button class="btn danger" id="clear" type="button">Clear</button>
-        </div>
-        <div id="msg" class="hint"></div>
-      </form>
-    </section>
+          <label class="field">
+            <span>Worker name</span>
+            <input id="workerName" autocomplete="name" placeholder="Start typing your name" />
+          </label>
 
-    <section class="card">
-      <div class="card-head">
-        <h2>Clock Buttons</h2>
-        <div class="status">
-          <div class="status-label">Status</div>
-          <div id="status" class="status-text">Not started</div>
-        </div>
-      </div>
+          <div class="field-grid">
+            <label class="field">
+              <span>Staffing agency</span>
+              <select id="agencyId">
+                <option value="sterling_staffing">Sterling Staffing</option>
+                <option value="excel_staffing">Excel Staffing</option>
+                <option value="lifestyle_staffing">Lifestyle Staffing</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Branch</span>
+              <select id="branchId">
+                <option value="OH01">OH01</option>
+                <option value="OHC">OHC</option>
+              </select>
+            </label>
+          </div>
 
-      <div class="buttons">
-        <button class="btn big" id="clockIn">✅ Clock In</button>
-        <button class="btn big" id="lunchOut">🍽️ Lunch Out</button>
-        <button class="btn big" id="endLunch">🥪 End Lunch</button>
-        <button class="btn big danger" id="clockOut">🏁 Clock Out</button>
-      </div>
+          <div id="statusMessage" class="status-message" role="status">Enter your name, then tap one action.</div>
 
-      <div class="today">
-        <div class="today-box">
-          <div class="label">Clock In</div>
-          <div class="value" id="vClockIn">—</div>
-        </div>
-        <div class="today-box">
-          <div class="label">Lunch Out</div>
-          <div class="value" id="vLunchOut">—</div>
-        </div>
-        <div class="today-box">
-          <div class="label">End Lunch</div>
-          <div class="value" id="vEndLunch">—</div>
-        </div>
-        <div class="today-box">
-          <div class="label">Clock Out</div>
-          <div class="value" id="vClockOut">—</div>
-        </div>
-        <div class="today-total">
-          <div class="label">Hours Worked (auto)</div>
-          <div class="value" id="vHours">—</div>
-          <div class="sub" id="vBreakdown"></div>
-        </div>
-      </div>
-    </section>
+          <div class="punch-grid">
+            <button class="punch-btn success" data-action="clock_in">Clock In</button>
+            <button class="punch-btn lunch" data-action="start_lunch">Start Lunch</button>
+            <button class="punch-btn lunch" data-action="end_lunch">End Lunch</button>
+            <button class="punch-btn danger" data-action="clock_out">Clock Out</button>
+          </div>
+        </article>
 
-    <section class="card">
-      <div class="card-head">
-        <h2>My History (from master sheet)</h2>
-        <div class="row">
-          <button class="btn" id="lastWeek">Last Week</button>
-          <button class="btn" id="thisWeek">This Week</button>
-          <button class="btn" id="refresh">Refresh</button>
-          <button class="btn" id="exportXlsx">⬇️ Excel</button>
-          <button class="btn" id="exportCsv">⬇️ CSV</button>
-        </div>
-      </div>
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Today</p>
+              <h2>Current punch status</h2>
+            </div>
+            <span id="workerState" class="badge">Not started</span>
+          </div>
+          <div id="todayTimeline" class="timeline empty">No punches yet.</div>
+        </article>
+      </section>
 
-      <div class="grid3">
-        <label><span>From</span><input id="from" type="date" /></label>
-        <label><span>To</span><input id="to" type="date" /></label>
-        <label><span>Total (range)</span><input id="rangeTotal" type="text" readonly /></label>
-      </div>
+      <section id="timeView" class="view">
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Read-only</p>
+              <h2>My time</h2>
+            </div>
+            <button id="refreshTime" class="secondary-btn">Refresh</button>
+          </div>
+          <label class="field">
+            <span>Worker name</span>
+            <input id="lookupName" placeholder="Enter your exact name" />
+          </label>
+          <div class="range-row">
+            <button class="range-btn active" data-range="this_week">This week</button>
+            <button class="range-btn" data-range="last_week">Last week</button>
+            <button class="range-btn" data-range="month">This month</button>
+          </div>
+          <div id="timeSummary" class="summary-grid"></div>
+          <div id="timeRows" class="records empty">Enter a name to view time.</div>
+        </article>
+      </section>
 
-      <div class="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Date</th><th>Day</th><th>Clock In</th><th>Lunch Out</th><th>End Lunch</th><th>Clock Out</th><th>Lunch (mins)</th><th>Total Hours</th>
-            </tr>
-          </thead>
-          <tbody id="tbody"></tbody>
-        </table>
-      </div>
-
-      <div class="hint">This pulls your rows from the shared Google Sheet using your Name + Company.</div>
-    </section>
+      <section id="managerView" class="view">
+        <article class="card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Firebase-ready foundation</p>
+              <h2>Manager workspace</h2>
+            </div>
+            <span class="badge warning">Setup required</span>
+          </div>
+          <div class="manager-grid">
+            <div class="metric"><span>Clocked in</span><strong id="metricIn">0</strong></div>
+            <div class="metric"><span>On lunch</span><strong id="metricLunch">0</strong></div>
+            <div class="metric"><span>Clocked out</span><strong id="metricOut">0</strong></div>
+            <div class="metric"><span>Exceptions</span><strong id="metricExceptions">0</strong></div>
+          </div>
+          <div class="notice">
+            <strong>Next setup step</strong>
+            <p>Create a new Firebase project, copy <code>firebase-config.example.js</code> to <code>firebase-config.js</code>, add your keys, then deploy the included Firestore rules.</p>
+          </div>
+          <div class="feature-list">
+            <div><strong>Canonical worker IDs</strong><span>No name-only identity writes.</span></div>
+            <div><strong>Agency and branch scope</strong><span>OH01 and OHC stay separated.</span></div>
+            <div><strong>Audit-safe editing</strong><span>Original values remain preserved.</span></div>
+            <div><strong>Live export source</strong><span>Exports rebuild from active punches.</span></div>
+          </div>
+        </article>
+      </section>
+    </main>
 
     <footer>
-      <span>Google Sheets-backed • Eastern Time • Exports</span>
-      <a class="muted" href="README.html">Setup</a>
+      <span>QRTimeClock 2 staging foundation</span>
+      <span>Existing QRTimeclock data is not connected</span>
     </footer>
-  </main>
+  </div>
+  <script type="module" src="app.js"></script>
 </body>
 </html>
